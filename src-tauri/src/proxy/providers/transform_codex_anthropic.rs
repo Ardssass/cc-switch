@@ -29,29 +29,23 @@ use std::collections::{BTreeMap, HashSet};
 pub(crate) const ANTHROPIC_THINKING_ENCRYPTED_PREFIX: &str = "ccswitch-anthropic-thinking-v1:";
 const TOOL_SEARCH_PROXY_NAME: &str = "tool_search";
 
-/// Maps Codex's reasoning.effort to the token budget for Anthropic thinking.
+/// Token budget for Anthropic `thinking.type = enabled` requests, given a
+/// client reasoning effort.
 ///
-/// Returning `None` indicates an unrecognized effort value—in that case extended
-/// thinking should not be enabled (to avoid accidentally swallowing
-/// temperature/top_p), keeping normal sampling.
+/// Only the budget-based request shape needs this: it offers no effort field, so
+/// the token budget is the only lever for depth. The effort is first normalised
+/// to the Anthropic effort enum ([`super::transform::anthropic_effort_value`]) so
+/// this table cannot drift from the values actually sent in `output_config`.
+///
+/// Returning `None` means the value is not a reasoning tier at all (`none` /
+/// `off` / unknown); extended thinking must not be enabled in that case, which
+/// keeps normal sampling instead of accidentally swallowing temperature/top_p.
 pub(crate) fn effort_to_thinking_budget(effort: &str) -> Option<u64> {
-    // ultra 是 Codex 扩展档位，钳到 max 同档——落进 None 会让"选最深思考"
-    // 反而关掉 extended thinking。
-    match effort.trim().to_ascii_lowercase().as_str() {
-        "minimal" | "low" => Some(2048),
+    match super::transform::anthropic_effort_value(effort)? {
+        "low" => Some(2048),
         "medium" => Some(8192),
         "high" => Some(16384),
-        "xhigh" | "max" | "ultra" => Some(24576),
-        _ => None,
-    }
-}
-
-fn codex_effort_to_anthropic(effort: &str) -> Option<&'static str> {
-    match effort.trim().to_ascii_lowercase().as_str() {
-        "minimal" | "low" => Some("low"),
-        "medium" => Some("medium"),
-        "high" => Some("high"),
-        "xhigh" | "max" | "ultra" => Some("max"),
+        "xhigh" | "max" => Some(24576),
         _ => None,
     }
 }
@@ -318,7 +312,7 @@ pub fn responses_request_to_anthropic(
     let adaptive_should_think = adaptive_model
         && (adaptive_by_default
             || reasoning_effort
-                .and_then(codex_effort_to_anthropic)
+                .and_then(super::transform::anthropic_effort_value)
                 .is_some());
 
     if !thinking_history_is_valid {
@@ -334,7 +328,7 @@ pub fn responses_request_to_anthropic(
     } else if adaptive_should_think && (!explicitly_disabled || cannot_disable_thinking) {
         thinking_enabled = true;
         result["thinking"] = json!({ "type": "adaptive" });
-        if let Some(effort) = reasoning_effort.and_then(codex_effort_to_anthropic) {
+        if let Some(effort) = reasoning_effort.and_then(super::transform::anthropic_effort_value) {
             result["output_config"] = json!({ "effort": effort });
         } else if explicitly_disabled && cannot_disable_thinking {
             // Fable/Mythos cannot turn thinking off. `low` is the closest safe
@@ -2143,6 +2137,35 @@ mod tests {
         assert_eq!(result["thinking"]["budget_tokens"], 16384);
         assert!(result.get("temperature").is_none());
         assert!(result.get("top_p").is_none());
+    }
+
+    #[test]
+    fn test_request_adaptive_model_carries_client_effort_verbatim() {
+        // 自适应思考形状（thinking.type=adaptive + output_config.effort）：档位原值
+        // 透传给上游，不做按模型能力的降档。xhigh 是 Anthropic 的合法取值，不折成 max。
+        let request = |effort: &str| {
+            json!({
+                "model": "claude-sonnet-5",
+                "max_output_tokens": 40000,
+                "reasoning": { "effort": effort },
+                "input": [{ "role": "user", "content": "hi" }]
+            })
+        };
+
+        for effort in ["low", "medium", "high", "xhigh", "max"] {
+            let result = responses_request_to_anthropic(request(effort), 4096).unwrap();
+            assert_eq!(result["thinking"]["type"], "adaptive", "effort={effort}");
+            assert_eq!(result["output_config"]["effort"], effort, "effort={effort}");
+        }
+
+        // Codex 独有档位按最近合法档落位：minimal→low、ultra→max。
+        for (effort, expected) in [("minimal", "low"), ("ultra", "max")] {
+            let result = responses_request_to_anthropic(request(effort), 4096).unwrap();
+            assert_eq!(
+                result["output_config"]["effort"], expected,
+                "effort={effort}"
+            );
+        }
     }
 
     #[test]

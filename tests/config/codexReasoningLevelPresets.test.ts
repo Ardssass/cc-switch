@@ -169,8 +169,7 @@ describe("Codex preset pre-filled reasoning levels", () => {
     // 站火山双 Plan 同源交叉印证）
     ["BytePlus", "ark-code-latest", ["low", "medium", "high"]],
     // StepFun 官方两站模型页+reasoning 指南：3.7-flash 三档（默认 medium）、
-    // 2603 两档；全系无关思考形态故无 none。effort 下发走后端 per-model
-    // 推断（2603=low_high、3.7=passthrough）
+    // 2603 两档；全系无关思考形态故无 none。目录档位供界面展示，代理侧原值透传
     ["StepFun", "step-3.7-flash", ["low", "medium", "high"]],
     ["StepFun", "step-3.5-flash-2603", ["low", "high"]],
     ["StepFun en", "step-3.7-flash", ["low", "medium", "high"]],
@@ -368,7 +367,7 @@ describe("Codex preset pre-filled reasoning levels", () => {
       // DeepInfra GLM-5.2 曾在此列（平台未声明、各处口径不一）；2026-10-24
       // 已从 DeepInfra 目录移除，不再断言
       // Mistral AI：开推理后流式 content 为分块数组、转换层暂不解析，且
-      // 现有 effortValueMode 发不出 "none"，第一版不下发推理参数、不填档位
+      // 转换层对顶层 reasoning_effort 形态发不出 "none"，第一版不下发推理参数、不填档位
       ["Mistral AI", "mistral-medium-3-5"],
       ["Mistral AI", "mistral-small-2603"],
     ];

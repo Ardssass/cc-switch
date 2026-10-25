@@ -245,9 +245,6 @@ const normalizeCodexChatReasoningForSave = (
     effortParam: supportsEffort
       ? (value?.effortParam ?? "reasoning_effort")
       : "none",
-    effortValueMode: supportsEffort
-      ? (value?.effortValueMode ?? "passthrough")
-      : undefined,
     outputFormat: value?.outputFormat ?? "auto",
   };
 };

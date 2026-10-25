@@ -376,15 +376,14 @@ describe("Codex Chat provider presets", () => {
   });
 
   it("ships per-model reasoningLevels for OpenCode Go mirroring models.dev", () => {
-    // Zen 网关的合法 effort 档位是逐模型的（models.dev reasoning_options，
-    // 2026-09-10）：统一并集映射会把 high 发给仅声明 max 的 kimi-k3.1-pro（原 kimi-k3），
-    // 此测试锁住逐模型表，防回退。
+    // 档位表用于界面展示模型可选项（models.dev reasoning_options，2026-09-10）；
+    // 代理侧不再按它钳制，Codex 选定的强度原值透传。
     const preset = codexProviderPresets.find(
       (item) => item.name === "OpenCode Go",
     );
 
     expect(preset, "OpenCode Go preset").toBeDefined();
-    expect(preset?.codexChatReasoning?.effortValueMode).toBe("zen");
+    expect(preset?.codexChatReasoning?.effortParam).toBe("reasoning_effort");
     expect(
       Object.fromEntries(
         (preset?.modelCatalog ?? []).map((model) => [

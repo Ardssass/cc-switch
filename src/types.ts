@@ -138,16 +138,6 @@ export type CodexChatEffortParam =
   // OpenRouter 原生归一化对象 reasoning:{effort}（区别于顶层 OpenAI 别名 reasoning_effort）
   | "reasoning.effort";
 
-export type CodexChatEffortValueMode =
-  | "passthrough"
-  | "low_high"
-  | "deepseek"
-  // OpenRouter effort 枚举 xhigh|high|medium|low|minimal（无 max，max 钳到 xhigh）
-  | "openrouter"
-  // OpenCode Zen 网关：合法档位逐模型，见 modelCatalog 各条目 reasoningLevels
-  // （镜像 models.dev）；代理转换层按请求模型查表钳制，无表不发 effort 字段
-  | "zen";
-
 export type CodexChatReasoningOutputFormat =
   | "auto"
   | "reasoning_content"
@@ -160,7 +150,6 @@ export interface CodexChatReasoning {
   supportsEffort?: boolean;
   thinkingParam?: CodexChatThinkingParam;
   effortParam?: CodexChatEffortParam;
-  effortValueMode?: CodexChatEffortValueMode;
   // 声明性字段：标注上游 reasoning 回传位置。当前提取靠穷举字段，未读取此值（think_tags 尚未接线）。
   outputFormat?: CodexChatReasoningOutputFormat;
 }

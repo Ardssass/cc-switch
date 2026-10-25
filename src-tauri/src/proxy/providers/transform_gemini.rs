@@ -361,12 +361,29 @@ fn build_generation_config(body: &Value) -> Option<Value> {
     if let Some(value) = body.get("stop_sequences") {
         config.insert("stopSequences".to_string(), value.clone());
     }
+    if let Some(thinking_config) = build_thinking_config(body) {
+        config.insert("thinkingConfig".to_string(), thinking_config);
+    }
 
     if config.is_empty() {
         None
     } else {
         Some(Value::Object(config))
     }
+}
+
+/// Anthropic 思考强度 → Gemini `generationConfig.thinkingConfig`。
+///
+/// 只写强度档位。`includeThoughts` 是「把思考摘要回传」的开关，而这条链路的响应侧
+/// 会把 `thought: true` 的 part 过滤掉（见 `gemini_to_anthropic_with_shadow_and_hints`
+/// 与 `streaming_gemini`），回传的摘要没有任何消费方，打开只会让上游多产出被丢弃的
+/// 思考 token。
+///
+/// Gemini 的 `thinkingLevel` 枚举最高只到 high；xhigh / max 由
+/// `ThinkingIntensity::gemini_thinking_level` 落到该档，不降级到更低强度。
+fn build_thinking_config(body: &Value) -> Option<Value> {
+    let intensity = crate::proxy::providers::transform::resolve_thinking_intensity(body)?;
+    Some(json!({ "thinkingLevel": intensity.gemini_thinking_level() }))
 }
 
 fn convert_messages_to_contents(
@@ -1288,6 +1305,87 @@ mod tests {
         assert_eq!(result["contents"][0]["role"], "user");
         assert_eq!(result["contents"][0]["parts"][0]["text"], "Hello");
         assert_eq!(result["generationConfig"]["maxOutputTokens"], 128);
+    }
+
+    #[test]
+    fn anthropic_to_gemini_maps_thinking_intensity_to_thinking_level() {
+        for (effort, expected) in [
+            ("low", "low"),
+            ("medium", "medium"),
+            ("high", "high"),
+            // Gemini 的 thinkingLevel 枚举最高只到 high，xhigh / max 落到该档
+            ("xhigh", "high"),
+            ("max", "high"),
+        ] {
+            let input = json!({
+                "model": "gemini-3-pro",
+                "max_tokens": 128,
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": effort},
+                "messages": [{"role": "user", "content": "Hello"}]
+            });
+
+            let result = anthropic_to_gemini(input).unwrap();
+            let thinking_config = &result["generationConfig"]["thinkingConfig"];
+            assert_eq!(thinking_config["thinkingLevel"], expected, "{effort}");
+            // 摘要没有消费方（响应侧会丢弃 thought part），不下发 includeThoughts
+            assert!(
+                thinking_config.get("includeThoughts").is_none(),
+                "{effort}"
+            );
+        }
+    }
+
+    #[test]
+    fn anthropic_to_gemini_maps_budget_thinking_to_level() {
+        let input = json!({
+            "model": "gemini-2.5-pro",
+            "thinking": {"type": "enabled", "budget_tokens": 32000},
+            "messages": [{"role": "user", "content": "Hello"}]
+        });
+
+        let result = anthropic_to_gemini(input).unwrap();
+        assert_eq!(
+            result["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "high"
+        );
+    }
+
+    #[test]
+    fn anthropic_to_gemini_omits_thinking_config_when_thinking_off() {
+        for input in [
+            json!({
+                "model": "gemini-3-pro",
+                "thinking": {"type": "disabled"},
+                "messages": [{"role": "user", "content": "Hello"}]
+            }),
+            json!({
+                "model": "gemini-3-pro",
+                "messages": [{"role": "user", "content": "Hello"}]
+            }),
+        ] {
+            let result = anthropic_to_gemini(input.clone()).unwrap();
+            assert!(
+                result["generationConfig"].get("thinkingConfig").is_none(),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn anthropic_to_gemini_keeps_thinking_config_without_other_generation_params() {
+        // 只有思考强度时 generationConfig 也必须建出来，否则字段无处可放。
+        let input = json!({
+            "model": "gemini-3-pro",
+            "thinking": {"type": "adaptive"},
+            "messages": [{"role": "user", "content": "Hello"}]
+        });
+
+        let result = anthropic_to_gemini(input).unwrap();
+        assert_eq!(
+            result["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "high"
+        );
     }
 
     #[test]

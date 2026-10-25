@@ -1837,13 +1837,10 @@ pub fn anthropic_to_responses(
         result["stream"] = v.clone();
     }
 
-    // Map Anthropic thinking → OpenAI Responses reasoning.effort
-    if let Some(model_name) = body.get("model").and_then(|m| m.as_str()) {
-        if super::transform::supports_reasoning_effort(model_name) {
-            if let Some(effort) = super::transform::resolve_reasoning_effort(&body) {
-                result["reasoning"] = json!({ "effort": effort });
-            }
-        }
+    // Map Anthropic thinking → OpenAI Responses reasoning.effort（强度是用户意图，
+    // 上游认不认由上游裁决，档位名与 Chat 的 reasoning_effort 相同）
+    if let Some(intensity) = super::transform::resolve_thinking_intensity(&body) {
+        result["reasoning"] = json!({ "effort": intensity.openai_effort() });
     }
 
     // stop_sequences → 丢弃 (Responses API 不支持)
@@ -5041,30 +5038,9 @@ mod tests {
     }
 
     #[test]
-    fn test_responses_output_config_max_sets_reasoning_xhigh() {
-        let input = json!({
-            "model": "gpt-5.4",
-            "max_tokens": 1024,
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": "max"},
-            "messages": [{"role": "user", "content": "Hello"}]
-        });
-
-        let result = anthropic_to_responses(input, None, false, false).unwrap();
-        assert_eq!(result["reasoning"]["effort"], "xhigh");
-    }
-
-    #[test]
-    fn test_responses_max_capable_models_preserve_max() {
-        for model in [
-            "gpt-5.6",
-            "gpt-5.6-sol",
-            "gpt-5.6-terra",
-            "gpt-5.6-luna",
-            "gpt-6-astra",
-            "gpt-6-sol",
-            "gpt-6-luna",
-        ] {
+    fn test_responses_output_config_max_is_preserved_for_every_model() {
+        // max 原样保留：强度是用户意图，上游认不认由上游裁决。
+        for model in ["gpt-5.4", "gpt-5-pro", "gpt-4o", "gemini-2.5-pro", "glm-5.2"] {
             let input = json!({
                 "model": model,
                 "max_tokens": 1024,
@@ -5111,8 +5087,8 @@ mod tests {
     }
 
     #[test]
-    fn test_responses_thinking_off_clamps_effort_to_low() {
-        // Thinking turned off in Claude Code: no `thinking`, effort still "high".
+    fn test_responses_effort_survives_thinking_off() {
+        // 关掉思考时 Claude Code 仍照发 effort；按用户选定的强度原样透传。
         let input = json!({
             "model": "gpt-5.4",
             "max_tokens": 1024,
@@ -5121,7 +5097,7 @@ mod tests {
         });
 
         let result = anthropic_to_responses(input, None, false, false).unwrap();
-        assert_eq!(result["reasoning"]["effort"], "low");
+        assert_eq!(result["reasoning"]["effort"], "high");
     }
 
     #[test]
@@ -5191,16 +5167,19 @@ mod tests {
     }
 
     #[test]
-    fn test_responses_non_reasoning_model_no_reasoning() {
-        let input = json!({
-            "model": "gpt-4o",
-            "max_tokens": 1024,
-            "thinking": {"type": "enabled", "budget_tokens": 2048},
-            "messages": [{"role": "user", "content": "Hello"}]
-        });
+    fn test_responses_forwards_effort_for_any_model() {
+        // 不再按模型白名单门控：非 o 系/GPT-5+ 的上游同样收到用户选定的强度。
+        for model in ["gpt-4o", "glm-5.2", "kimi-k3", "deepseek-v4-pro"] {
+            let input = json!({
+                "model": model,
+                "max_tokens": 1024,
+                "thinking": {"type": "enabled", "budget_tokens": 2048},
+                "messages": [{"role": "user", "content": "Hello"}]
+            });
 
-        let result = anthropic_to_responses(input, None, false, false).unwrap();
-        assert!(result.get("reasoning").is_none());
+            let result = anthropic_to_responses(input, None, false, false).unwrap();
+            assert_eq!(result["reasoning"]["effort"], "low", "model {model}");
+        }
     }
 
     // ==================== Codex OAuth (ChatGPT 反代) 协议约束 ====================

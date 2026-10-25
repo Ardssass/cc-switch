@@ -1235,7 +1235,6 @@ requires_openai_auth = true`,
       supportsEffort: true,
       thinkingParam: "enable_thinking",
       effortParam: "reasoning_effort",
-      effortValueMode: "deepseek",
       outputFormat: "reasoning_content",
     },
     category: "aggregator",
@@ -2020,15 +2019,13 @@ requires_openai_auth = true`,
     // 与 Coding Plan 的差异：这里开 supportsEffort——Coding Plan 因别名不知
     // 解析到谁而保持 false；Token Plan catalog 全为显式模型，默认模型
     // deepseek-v4-pro 在 reasoning_effort 官方清单内（清单仅 v4-pro/v4-flash，
-    // 档位仅 high/max）。effortValueMode:"deepseek"（max/xhigh/ultra→max、
-    // 其余→high）与千帆官方向下兼容映射（low/medium→high、xhigh→max）逐字
-    // 吻合；非清单模型收到 reasoning_effort 按平台明文"忽略不报错"，无害
+    // 档位仅 high/max）。档位原值透传，非清单模型收到 reasoning_effort 按平台
+    // 明文"忽略不报错"，无害
     codexChatReasoning: {
       supportsThinking: true,
       supportsEffort: true,
       thinkingParam: "thinking",
       effortParam: "reasoning_effort",
-      effortValueMode: "deepseek",
       outputFormat: "reasoning_content",
     },
     category: "cn_official",
@@ -2443,7 +2440,7 @@ requires_openai_auth = true`,
     ]),
     // 真 Key 实测（2026-08-31）：thinking 参数在 /plan 端点真实生效
     // （开/关均验证，thinking 文档 1300/80637 覆盖 /plan）；reasoning_effort
-    // 全模型容忍不报错（含默认 high）。effortValueMode 不声明=passthrough，
+    // 全模型容忍不报错（含默认 high）。档位原值透传，
     // 档位值域已由各模型 reasoningLevels 限定为实测安全集
     codexChatReasoning: {
       supportsThinking: true,
@@ -2998,8 +2995,8 @@ requires_openai_auth = true`,
       // 档位照抄官方两站模型页与 reasoning 指南（2026-08-15 盘点）：
       // 3.7-flash 三档默认 medium、2603 两档；无后缀 3.5-flash 官方未暴露
       // effort，不填。全系无关思考形态，none 一律不列。effort 下发由后端
-      // 按模型推断（2603=low_high 收敛、3.7=passthrough），预设不加
-      // codexChatReasoning——显式声明是 provider 级会丢 per-model 门控
+      // 按平台推断（stepfun 走顶层 reasoning_effort 原值透传），预设不加
+      // codexChatReasoning
       {
         model: "step-3.7-flash",
         displayName: "Step 3.7 Flash",
@@ -3041,8 +3038,8 @@ requires_openai_auth = true`,
       // 档位照抄官方两站模型页与 reasoning 指南（2026-08-15 盘点）：
       // 3.7-flash 三档默认 medium、2603 两档；无后缀 3.5-flash 官方未暴露
       // effort，不填。全系无关思考形态，none 一律不列。effort 下发由后端
-      // 按模型推断（2603=low_high 收敛、3.7=passthrough），预设不加
-      // codexChatReasoning——显式声明是 provider 级会丢 per-model 门控
+      // 按平台推断（stepfun 走顶层 reasoning_effort 原值透传），预设不加
+      // codexChatReasoning
       {
         model: "step-3.7-flash",
         displayName: "Step 3.7 Flash",
@@ -3513,7 +3510,6 @@ requires_openai_auth = true`,
       supportsEffort: true,
       thinkingParam: "none",
       effortParam: "reasoning_effort",
-      effortValueMode: "passthrough",
       outputFormat: "reasoning_content",
     },
     category: "aggregator",
@@ -4216,7 +4212,6 @@ requires_openai_auth = true`,
       supportsEffort: true,
       thinkingParam: "none",
       effortParam: "reasoning_effort",
-      effortValueMode: "passthrough",
       outputFormat: "reasoning",
     },
     category: "aggregator",
@@ -4543,16 +4538,13 @@ requires_openai_auth = true`,
     ),
     endpointCandidates: ["https://opencode.ai/zen/go/v1"],
     apiFormat: "openai_chat",
-    // OpenCode Zen 网关：统一接受顶层 reasoning_effort（其自家客户端同款参数），
-    // 但合法档位逐模型（见各条目 reasoningLevels，镜像 models.dev；opencode
-    // 客户端同样严格按模型声明发值）——代理转换层按表钳制，未声明 effort 的
-    // 模型不发该字段。不发厂商原生 thinking 字段。
+    // OpenCode Zen 网关：统一接受顶层 reasoning_effort（其自家客户端同款参数）。
+    // 档位原值透传，模型认不认由网关裁决。不发厂商原生 thinking 字段。
     codexChatReasoning: {
       supportsThinking: true,
       supportsEffort: true,
       thinkingParam: "none",
       effortParam: "reasoning_effort",
-      effortValueMode: "zen",
       outputFormat: "reasoning_content",
     },
     modelCatalog: modelCatalog([

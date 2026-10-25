@@ -594,7 +594,7 @@ pub fn resolve_codex_chat_reasoning_config(
     provider: &Provider,
     body: &JsonValue,
 ) -> Option<CodexChatReasoningConfig> {
-    let mut config = if let Some(config) = provider
+    let config = if let Some(config) = provider
         .meta
         .as_ref()
         .and_then(|meta| meta.codex_chat_reasoning.clone())
@@ -604,47 +604,7 @@ pub fn resolve_codex_chat_reasoning_config(
         infer_codex_chat_reasoning_config(provider, body)?
     };
 
-    // zen 的合法 effort 档位是逐模型的（models.dev：glm-5.2 仅 high|max、
-    // kimi-k3 仅 max、qwen/glm-5.1 等为 toggle 型无 effort），opencode 客户端
-    // 也严格按模型声明发值。按请求模型从 modelCatalog 的 reasoningLevels
-    // （#6228 引入的逐模型声明）查表附上；查不到（模型未收录 / 条目未声明
-    // effort）→ None，转换层将完全不发 reasoning_effort。
-    if config.effort_value_mode.as_deref() == Some("zen") {
-        config.effort_levels = zen_catalog_effort_levels(provider, body);
-    }
-
     Some(config)
-}
-
-/// 按请求模型从供应商 modelCatalog 查 Zen 合法 effort 档位（逐模型数据镜像
-/// models.dev 的 reasoning_options effort values）。仅做档位查表，不参与平台
-/// 判定——平台身份仍只由 name/base_url 决定（见 infer_aggregator_platform_config）。
-/// DB SSOT 为 camelCase，手写/旧数据可能为 snake_case，双格式兼容（与表单加载侧一致）。
-fn zen_catalog_effort_levels(provider: &Provider, body: &JsonValue) -> Option<Vec<String>> {
-    let model = body.get("model")?.as_str()?.trim();
-    if model.is_empty() {
-        return None;
-    }
-    let entries = provider
-        .settings_config
-        .get("modelCatalog")?
-        .get("models")?
-        .as_array()?;
-    let entry = entries.iter().find(|entry| {
-        entry
-            .get("model")
-            .and_then(|value| value.as_str())
-            .is_some_and(|name| name.eq_ignore_ascii_case(model))
-    })?;
-    let levels_value = entry
-        .get("reasoningLevels")
-        .or_else(|| entry.get("reasoning_levels"))?;
-    let levels: Vec<String> = levels_value
-        .as_array()?
-        .iter()
-        .filter_map(|level| level.as_str().map(str::to_string))
-        .collect();
-    (!levels.is_empty()).then_some(levels)
 }
 
 fn normalize_codex_chat_reasoning_config(
@@ -698,35 +658,21 @@ fn infer_codex_chat_reasoning_config(
             supports_effort: Some(true),
             thinking_param: Some("thinking".to_string()),
             effort_param: Some("reasoning_effort".to_string()),
-            effort_value_mode: Some("deepseek".to_string()),
             output_format: Some("reasoning_content".to_string()),
-            effort_levels: None,
         });
     }
 
-    // StepFun：官方 reasoning 指南与两站模型页（2026-08-15 盘点）——
-    // step-3.5-flash-2603 支持 low/high 两档；step-3.7-flash 支持
-    // low/medium/high 三档（官方默认 medium）；其余 step 模型（含无后缀
-    // step-3.5-flash）不暴露 effort。2603 沿用 low_high 收敛映射；
-    // 3.7-flash 必须 passthrough——套 low_high 会把 medium 塌成 high，
-    // 造出 wire 上无差异的假档位。全系无思考开关（thinking_param 恒 none）。
+    // StepFun：官方 reasoning 指南与两站模型页（2026-08-15 盘点）——该站方言是顶层
+    // `reasoning_effort`，且全系无思考开关（thinking_param 恒 none）。档位原值透传：
+    // 哪个模型认哪几档由上游裁决，代理不替它收敛。
     // 第二个 OR 分支覆盖「经中转/聚合跑该模型、但平台 name/base_url 不含 stepfun」的情况。
     if haystack.contains("stepfun") || haystack.contains("step-3.5-flash-2603") {
         return Some(CodexChatReasoningConfig {
             supports_thinking: Some(true),
-            supports_effort: Some(model.contains("2603") || model.contains("step-3.7-flash")),
+            supports_effort: Some(true),
             thinking_param: Some("none".to_string()),
             effort_param: Some("reasoning_effort".to_string()),
-            effort_value_mode: Some(
-                if model.contains("2603") {
-                    "low_high"
-                } else {
-                    "passthrough"
-                }
-                .to_string(),
-            ),
             output_format: Some("reasoning".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -736,9 +682,7 @@ fn infer_codex_chat_reasoning_config(
             supports_effort: Some(false),
             thinking_param: Some("thinking".to_string()),
             effort_param: Some("none".to_string()),
-            effort_value_mode: None,
             output_format: Some("reasoning_content".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -748,9 +692,7 @@ fn infer_codex_chat_reasoning_config(
             supports_effort: Some(false),
             thinking_param: Some("thinking".to_string()),
             effort_param: Some("none".to_string()),
-            effort_value_mode: None,
             output_format: Some("reasoning_content".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -760,9 +702,7 @@ fn infer_codex_chat_reasoning_config(
             supports_effort: Some(false),
             thinking_param: Some("enable_thinking".to_string()),
             effort_param: Some("none".to_string()),
-            effort_value_mode: None,
             output_format: Some("reasoning_content".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -772,9 +712,7 @@ fn infer_codex_chat_reasoning_config(
             supports_effort: Some(false),
             thinking_param: Some("reasoning_split".to_string()),
             effort_param: Some("none".to_string()),
-            effort_value_mode: None,
             output_format: Some("reasoning_details".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -784,9 +722,7 @@ fn infer_codex_chat_reasoning_config(
             supports_effort: Some(false),
             thinking_param: Some("thinking".to_string()),
             effort_param: Some("none".to_string()),
-            effort_value_mode: None,
             output_format: Some("reasoning_content".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -804,9 +740,8 @@ fn infer_aggregator_platform_config(
     let platform = format!("{name} {base_url}");
 
     // OpenRouter：用原生归一化对象 `reasoning: { effort }`（由 OpenRouter 翻译成各底层
-    // 模型的正确推理参数，比顶层 OpenAI 别名 reasoning_effort 覆盖面更全）。effort 走
-    // "openrouter" 值映射：枚举为 xhigh|high|medium|low|minimal，无 max——max 会触发
-    // `400 reasoning_effort: Invalid option`（见 openclaw#77350），故钳到 xhigh。
+    // 模型的正确推理参数，比顶层 OpenAI 别名 reasoning_effort 覆盖面更全）。档位按
+    // Codex 原值透传：强度是用户意图，上游认不认由上游裁决。
     // 安全降级：不发 `thinking:{type}`（OpenRouter 不认该字段），避免误配导致请求被拒。
     if platform.contains("openrouter") {
         return Some(CodexChatReasoningConfig {
@@ -814,9 +749,7 @@ fn infer_aggregator_platform_config(
             supports_effort: Some(true),
             thinking_param: Some("none".to_string()),
             effort_param: Some("reasoning.effort".to_string()),
-            effort_value_mode: Some("openrouter".to_string()),
             output_format: Some("auto".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -829,9 +762,7 @@ fn infer_aggregator_platform_config(
             supports_effort: Some(false),
             thinking_param: Some("enable_thinking".to_string()),
             effort_param: Some("none".to_string()),
-            effort_value_mode: None,
             output_format: Some("reasoning_content".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -846,18 +777,15 @@ fn infer_aggregator_platform_config(
             supports_effort: Some(false),
             thinking_param: Some("enable_thinking".to_string()),
             effort_param: Some("none".to_string()),
-            effort_value_mode: None,
             output_format: Some("reasoning_content".to_string()),
-            effort_levels: None,
         });
     }
 
     // OpenCode Zen（opencode.ai 网关，issue #6112）：其自家客户端对该传输发顶层
     // `reasoning_effort`（provider/transform.ts），平台归一参数；不发厂商原生
     // thinking 形状（glm 模型走 zen 时套智谱 thinking:{type} 网关不认）。
-    // 合法档位逐模型（models.dev 的 reasoning_options，opencode 客户端同样严格
-    // 按模型声明发值）：具体档位表见供应商 modelCatalog 各条目的 reasoningLevels，
-    // 代理由此按请求模型查表钳制（resolve 处附上 effort_levels），无表不发字段。
+    // 档位值域逐模型不同（见各条目 modelCatalog 的 reasoningLevels），但这属于上游
+    // 校验范围：代理只发客户端选定的档位，不替网关裁决。
     // 匹配域名而非裸 "opencode"，避免误伤名字含 opencode 的无关供应商。
     if platform.contains("opencode.ai") {
         return Some(CodexChatReasoningConfig {
@@ -865,9 +793,7 @@ fn infer_aggregator_platform_config(
             supports_effort: Some(true),
             thinking_param: Some("none".to_string()),
             effort_param: Some("reasoning_effort".to_string()),
-            effort_value_mode: Some("zen".to_string()),
             output_format: Some("reasoning_content".to_string()),
-            effort_levels: None,
         });
     }
 
@@ -2170,7 +2096,7 @@ wire_api = "chat"
 
         assert_eq!(config.supports_thinking, Some(true));
         assert_eq!(config.supports_effort, Some(true));
-        assert_eq!(config.effort_value_mode.as_deref(), Some("deepseek"));
+        assert_eq!(config.effort_param.as_deref(), Some("reasoning_effort"));
     }
 
     #[test]
@@ -2192,9 +2118,7 @@ wire_api = "chat"
                 supports_effort: Some(false),
                 thinking_param: Some("none".to_string()),
                 effort_param: Some("none".to_string()),
-                effort_value_mode: None,
                 output_format: Some("auto".to_string()),
-                effort_levels: None,
             }),
             ..Default::default()
         });
@@ -2231,7 +2155,6 @@ wire_api = "chat"
 
         assert_eq!(config.thinking_param.as_deref(), Some("none"));
         assert_eq!(config.effort_param.as_deref(), Some("reasoning.effort"));
-        assert_eq!(config.effort_value_mode.as_deref(), Some("openrouter"));
         assert_eq!(config.supports_effort, Some(true));
     }
 
@@ -2310,117 +2233,11 @@ wire_api = "chat"
         assert_eq!(config.supports_effort, Some(true));
         assert_eq!(config.thinking_param.as_deref(), Some("none"));
         assert_eq!(config.effort_param.as_deref(), Some("reasoning_effort"));
-        assert_eq!(config.effort_value_mode.as_deref(), Some("zen"));
         assert_eq!(config.output_format.as_deref(), Some("reasoning_content"));
     }
 
     #[test]
-    fn test_resolve_codex_chat_reasoning_zen_attaches_per_model_effort_levels() {
-        let provider = create_provider(json!({
-            "config": r#"
-model_provider = "opencode"
-model = "glm-5.2"
-
-[model_providers.opencode]
-name = "OpenCode Go"
-base_url = "https://opencode.ai/zen/go/v1"
-wire_api = "chat"
-"#,
-            "modelCatalog": {
-                "models": [
-                    { "model": "glm-5.2", "reasoningLevels": ["high", "max"] },
-                    { "model": "deepseek-v4-flash", "reasoningLevels": ["low", "high", "max"] },
-                    { "model": "glm-5.1" }
-                ]
-            }
-        }));
-
-        // 逐模型查表：声明了 reasoningLevels 的模型附上各自档位（模型名大小写不敏感）。
-        let config =
-            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "GLM-5.2" })).unwrap();
-        assert_eq!(
-            config.effort_levels,
-            Some(vec!["high".to_string(), "max".to_string()])
-        );
-
-        let config = resolve_codex_chat_reasoning_config(
-            &provider,
-            &json!({ "model": "deepseek-v4-flash" }),
-        )
-        .unwrap();
-        assert_eq!(
-            config.effort_levels,
-            Some(vec![
-                "low".to_string(),
-                "high".to_string(),
-                "max".to_string()
-            ])
-        );
-
-        // toggle 型模型（目录条目未声明 reasoningLevels）→ None：转换层不发 effort 字段。
-        let config =
-            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "glm-5.1" })).unwrap();
-        assert_eq!(config.effort_value_mode.as_deref(), Some("zen"));
-        assert!(config.effort_levels.is_none());
-
-        // 目录未收录的模型 → 同样 None。
-        let config =
-            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "kimi-k3" })).unwrap();
-        assert!(config.effort_levels.is_none());
-    }
-
-    #[test]
-    fn test_resolve_codex_chat_reasoning_zen_levels_attach_on_explicit_meta_too() {
-        let mut provider = create_provider(json!({
-            "config": r#"
-model_provider = "opencode"
-model = "deepseek-v4-flash"
-
-[model_providers.opencode]
-name = "OpenCode Go"
-base_url = "https://opencode.ai/zen/go/v1"
-wire_api = "chat"
-"#,
-            "modelCatalog": {
-                "models": [
-                    { "model": "deepseek-v4-flash", "reasoning_levels": ["low", "high", "max"] }
-                ]
-            }
-        }));
-        // 显式 meta（表单手选 zen 模式）同样要在 resolve 末端按请求模型附表；
-        // 且手写/旧数据可能是 snake_case 的 reasoning_levels（加载侧双格式兼容）。
-        provider.meta = Some(crate::provider::ProviderMeta {
-            codex_chat_reasoning: Some(CodexChatReasoningConfig {
-                supports_thinking: Some(true),
-                supports_effort: Some(true),
-                thinking_param: Some("none".to_string()),
-                effort_param: Some("reasoning_effort".to_string()),
-                effort_value_mode: Some("zen".to_string()),
-                output_format: Some("reasoning_content".to_string()),
-                effort_levels: None,
-            }),
-            ..Default::default()
-        });
-
-        let config = resolve_codex_chat_reasoning_config(
-            &provider,
-            &json!({ "model": "deepseek-v4-flash" }),
-        )
-        .unwrap();
-
-        assert_eq!(config.effort_value_mode.as_deref(), Some("zen"));
-        assert_eq!(
-            config.effort_levels,
-            Some(vec![
-                "low".to_string(),
-                "high".to_string(),
-                "max".to_string()
-            ])
-        );
-    }
-
-    #[test]
-    fn test_infer_codex_chat_reasoning_stepfun_per_model_effort() {
+    fn test_infer_codex_chat_reasoning_stepfun_uses_top_level_effort() {
         let provider = create_provider(json!({
             "config": r#"
 model_provider = "stepfun"
@@ -2433,29 +2250,15 @@ wire_api = "chat"
 "#
         }));
 
-        // step-3.7-flash：官方三档 low/medium/high —— 必须 passthrough，
-        // 套 low_high 会把 medium 塌成 high（假差异档）
-        let config =
-            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "step-3.7-flash" }))
+        // StepFun 全系走顶层 reasoning_effort、无思考开关；档位不按模型收敛，
+        // 所以三个模型拿到同一份接口形态。
+        for model in ["step-3.7-flash", "step-3.5-flash-2603", "step-3.5-flash"] {
+            let config = resolve_codex_chat_reasoning_config(&provider, &json!({ "model": model }))
                 .unwrap();
-        assert_eq!(config.supports_effort, Some(true));
-        assert_eq!(config.effort_value_mode.as_deref(), Some("passthrough"));
-
-        // step-3.5-flash-2603：官方两档 low/high，沿用收敛映射
-        let config = resolve_codex_chat_reasoning_config(
-            &provider,
-            &json!({ "model": "step-3.5-flash-2603" }),
-        )
-        .unwrap();
-        assert_eq!(config.supports_effort, Some(true));
-        assert_eq!(config.effort_value_mode.as_deref(), Some("low_high"));
-
-        // 无后缀 step-3.5-flash：官方未暴露 effort，不下发
-        let config =
-            resolve_codex_chat_reasoning_config(&provider, &json!({ "model": "step-3.5-flash" }))
-                .unwrap();
-        assert_eq!(config.supports_effort, Some(false));
-        assert_eq!(config.thinking_param.as_deref(), Some("none"));
+            assert_eq!(config.supports_effort, Some(true), "model={model}");
+            assert_eq!(config.thinking_param.as_deref(), Some("none"));
+            assert_eq!(config.effort_param.as_deref(), Some("reasoning_effort"));
+        }
     }
 
     #[test]
